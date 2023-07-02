@@ -35,22 +35,15 @@ class ViTMatte(nn.Module):
     def device(self):
         return self.pixel_mean.device
 
-    def forward(self, batched_inputs):
-        images, targets, H, W = self.preprocess_inputs(batched_inputs)
-
+    def forward(self, image, trimap):
+        # images, trimap, targets, H, W = self.preprocess_inputs(batched_inputs)
+        images = torch.concat([image, trimap], dim=1)
         features = self.backbone(images)
         outputs = self.decoder(features, images)  
 
-        if self.training:
-            assert targets is not None
-            trimap = images[:, 3:4]
-            sample_map = torch.zeros_like(trimap)
-            sample_map[trimap==0.5] = 1
-            losses = self.criterion(sample_map ,outputs, targets)               
-            return losses
-        else:
-            outputs['phas'] = outputs['phas'][:,:,:H,:W]
-            return outputs
+        
+        # outputs['phas'] = outputs['phas'][:,:,:H,:W]
+        return outputs
 
 
 
@@ -67,7 +60,7 @@ class ViTMatte(nn.Module):
             trimap[trimap >= 170] = 1
             trimap[trimap >= 85] = 0.5
 
-        images = torch.cat((images, trimap), dim=1)
+        # images = torch.cat((images, trimap), dim=1)
         
         B, C, H, W = images.shape
         if images.shape[-1]%32!=0 or images.shape[-2]%32!=0:
@@ -75,12 +68,17 @@ class ViTMatte(nn.Module):
             new_W = (32-images.shape[-1]%32) + W
             new_images = torch.zeros((images.shape[0], images.shape[1], new_H, new_W)).to(self.device)
             new_images[:,:,:H,:W] = images[:,:,:,:]
+
+            new_trimap = torch.zeros((trimap.shape[0], trimap.shape[1], new_H, new_W)).to(self.device)
+            new_trimap[:,:,:H,:W] = trimap[:,:,:,:]
+            del trimap
             del images
             images = new_images
+            trimap = new_trimap
 
         if "alpha" in batched_inputs:
             phas = batched_inputs["alpha"].to(self.device)
         else:
             phas = None
 
-        return images, dict(phas=phas), H, W
+        return images, trimap, dict(phas=phas), H, W
